@@ -1,7 +1,7 @@
 /* Channel Capacity Simulation V6.0 — frontend application.
    All backend calls go through apiCall() -> window.oseFetch (config.js). */
 'use strict';
-const APP_BUILD = '6.0.3';
+const APP_BUILD = '6.0.4';
 console.info('[Channel Capacity] frontend build', APP_BUILD);
 
 // ------------------------------------------------------------------ utilities
@@ -115,6 +115,13 @@ function switchTab(name) {
   document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.id === name));
   if (name === 'channel' && RESULT) requestAnimationFrame(drawHeatmap);
   if (name === 'animation' && RESULT) requestAnimationFrame(() => drawAnimation(ANIM.t));
+  // Charts created while their tab was hidden have zero size: rebuild/resize once the tab is visible.
+  requestAnimationFrame(() => {
+    if (name === 'scenarios') renderScenarios();
+    else if (name === 'channel' && RESULT) renderChannel();
+    else if (name === 'capacity' && CAP) renderCapacity();
+    else document.querySelectorAll('#' + name + ' canvas').forEach((c) => { const ch = CHARTS[c.id]; if (ch && ch.resize) ch.resize(); });
+  });
   window.scrollTo({ top: 0 });
 }
 function download(name, data, type = 'text/plain') {
