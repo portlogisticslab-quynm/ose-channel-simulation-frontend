@@ -1,7 +1,7 @@
 /* Channel Capacity Simulation V6.0 — frontend application.
    All backend calls go through apiCall() -> window.oseFetch (config.js). */
 'use strict';
-const APP_BUILD = '6.0.4';
+const APP_BUILD = '6.0.5';
 console.info('[Channel Capacity] frontend build', APP_BUILD);
 
 // ------------------------------------------------------------------ utilities
@@ -118,9 +118,9 @@ function switchTab(name) {
   // Charts created while their tab was hidden have zero size: rebuild/resize once the tab is visible.
   requestAnimationFrame(() => {
     if (name === 'scenarios') renderScenarios();
+    else if (name === 'results' && RESULT) renderCharts();
     else if (name === 'channel' && RESULT) renderChannel();
     else if (name === 'capacity' && CAP) renderCapacity();
-    else document.querySelectorAll('#' + name + ' canvas').forEach((c) => { const ch = CHARTS[c.id]; if (ch && ch.resize) ch.resize(); });
   });
   window.scrollTo({ top: 0 });
 }
@@ -271,10 +271,10 @@ async function runSimulation() {
   try {
     const d = await apiCall('/api/run', 'POST', { input: INPUT });
     RESULT = d.result; RESULT._input = clone(INPUT); RESULT._label = INPUT_LABEL; RESULT._version = d.version;
+    switchTab('results');          // show the tab first: Chart.js cannot size charts inside a hidden panel
     renderAll();
     addScenarioFromResult();
     setStatus(`Done: ${RESULT.meta.nReps} replications × ${fmt(RESULT.meta.days, 1)} days in ${fmt((performance.now() - t0) / 1000, 1)} s (engine ${fmt(RESULT.meta.elapsed_s, 1)} s).`, 'ok');
-    switchTab('results');
   } catch (e) { setStatus('Run failed: ' + e.message, 'err'); toast(e.message); }
   finally { busy(false); }
 }
