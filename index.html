@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Channel Capacity Simulation V6</title>
+<meta name="description" content="Discrete-event simulation of navigation-channel capacity: tide/UKC windows, meeting rules, berths, turning basins, pilots, tugs and weather.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b3a5b'/%3E%3Cpath d='M4 20c4-4 8 4 12 0s8 4 12 0' stroke='%23e8590c' stroke-width='3' fill='none'/%3E%3Cpath d='M9 11h14l-3 5H12z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./css/style.css?v=6.0.3">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M4 20c4-4 8 4 12 0s8 4 12 0"/><path class="hull" d="M9 11h14l-3 5H12z"/></svg>
+    <div>
+      <div class="brand-title">Channel Capacity Simulation</div>
+      <div class="brand-sub">Discrete-event model · tide/UKC · traffic · berths · turning basins · resources</div>
+    </div>
+    <span class="ver">V6.0</span>
+  </div>
+  <div class="top-actions">
+    <div class="backend" id="backendChip" title="Backend in use">
+      <span class="dot" id="backendDot"></span><span id="backendText">Connecting…</span>
+    </div>
+    <select id="backendSelect" class="compact" aria-label="Backend selection" title="Choose backend (adds ?api= to the URL)">
+      <option value="auto">Auto (home → Render)</option>
+      <option value="home">Home server</option>
+      <option value="render">Render</option>
+    </select>
+    <button class="btn primary" id="runBtn" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>Run simulation</button>
+  </div>
+  <div class="progress" aria-hidden="true"><div id="progbar"></div></div>
+</header>
+
+<div class="layout">
+  <nav class="sidenav" aria-label="Sections">
+    <button class="nav active" data-tab="setup"><span class="ico">⚙</span>Setup</button>
+    <button class="nav" data-tab="results"><span class="ico">▦</span>Results</button>
+    <button class="nav" data-tab="capacity"><span class="ico">⟋</span>Capacity</button>
+    <button class="nav" data-tab="channel"><span class="ico">≋</span>Channel &amp; tide</button>
+    <button class="nav" data-tab="animation"><span class="ico">▶</span>Animation</button>
+    <button class="nav" data-tab="vessels"><span class="ico">☰</span>Vessels</button>
+    <button class="nav" data-tab="input"><span class="ico">⊞</span>Input data</button>
+    <button class="nav" data-tab="scenarios"><span class="ico">⇄</span>Scenarios</button>
+    <div class="nav-foot">
+      <div id="runStatus" class="status">Ready — demo input loaded.</div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <!-- ============================== SETUP -->
+    <section id="setup" class="panel active">
+      <div class="page-head">
+        <div><h1>Model setup</h1><p class="lead">Load an INPUT workbook (V4.5/V5/V6 templates) or edit the demo. All V6 options are optional; switching them off reproduces the V5 assumptions.</p></div>
+        <div class="head-actions">
+          <button class="btn" id="validateBtn" type="button">Validate input</button>
+        </div>
+      </div>
+      <div class="grid cols-3">
+        <div class="card">
+          <h3>Input workbook</h3>
+          <label class="file"><input type="file" id="xlsxFile" accept=".xlsx,.xls,.json"><span id="fileName">Choose .xlsx or .json…</span></label>
+          <div class="btn-row">
+            <button class="btn" id="loadBtn" type="button">Load file</button>
+            <button class="btn ghost" id="resetBtn" type="button">Reset demo</button>
+          </div>
+          <div class="btn-row">
+            <button class="btn ghost" id="tplBtn" type="button">Download INPUT template (.xlsx)</button>
+            <button class="btn ghost" id="inJsonBtn" type="button">Export INPUT (.json)</button>
+          </div>
+          <p class="hint" id="inputName">Demo: 30 km channel, 7 segments, 6 berths, 3 turning basins.</p>
+        </div>
+        <div class="card">
+          <h3>Simulation</h3>
+          <div class="fields">
+            <label>Days per replication<input type="number" data-bind="SIM.days" min="0.5" step="0.5"></label>
+            <label>Warm-up (days)<input type="number" data-bind="SIM.warmup_days" min="0" step="0.5"></label>
+            <label>Replications<input type="number" data-bind="SIM.nReps" min="1" max="500" step="1"></label>
+            <label>Seed<input type="number" data-bind="SIM.seed" step="1"></label>
+            <label>Arrival rate λ (ships/h)<input type="number" data-bind="DEMAND.lambda_total_hr" min="0" step="0.05"></label>
+            <label>Heatmap step (min)<input type="number" data-bind="SIM.occupancyStep_min" min="1" step="1"></label>
+          </div>
+          <p class="hint" id="expectedShips"></p>
+        </div>
+        <div class="card">
+          <h3>Demand pattern &amp; movement mix</h3>
+          <div class="fields">
+            <label>Seasonal factor<input type="number" data-bind="DEMAND.seasonal_factor" min="0" step="0.05"></label>
+            <label>Peak factor<input type="number" data-bind="DEMAND.peak_factor" min="0" step="0.1"></label>
+            <label>Peak from (h)<input type="number" data-bind="DEMAND.peak_start_hr" min="0" max="24" step="1"></label>
+            <label>Peak to (h)<input type="number" data-bind="DEMAND.peak_end_hr" min="0" max="24" step="1"></label>
+          </div>
+          <div id="movementControls" class="fields"></div>
+          <p class="hint">Peak factor redistributes arrivals within the day; the daily mean stays λ × seasonal factor. Shares are normalised.</p>
+        </div>
+
+        <div class="card span-2">
+          <h3>Navigation &amp; realism options</h3>
+          <div class="fields cols-4">
+            <label class="check"><input type="checkbox" data-bind="MODEL.apply_speed_limit"><span>Apply segment speed limits</span></label>
+            <label class="check"><input type="checkbox" data-bind="MODEL.tide_check_along_path"><span>Tidal window along the passage</span></label>
+            <label class="check"><input type="checkbox" data-bind="MODEL.no_overtaking"><span>No overtaking in segments</span></label>
+            <label class="check"><input type="checkbox" data-bind="MODEL.allow_meeting"><span>Meeting allowed (master switch)</span></label>
+            <label>Squat model<select data-bind="MODEL.squat_method"><option value="none">None</option><option value="barrass">Barrass (Cb·V²/K)</option></select></label>
+            <label>Channel confinement<select data-bind="MODEL.squat_confinement"><option value="open">Open water (K=100)</option><option value="confined">Confined (K=50)</option></select></label>
+            <label>Ships wait for berth at<select data-bind="MODEL.berth_wait_location"><option value="anchorage">Anchorage (just-in-time)</option><option value="berth">Berth (V5 legacy)</option></select></label>
+            <label>Berth assignment<select data-bind="ROUTES.assignmentMode"><option value="multi_berth_weighted">Weighted (Priority/Weight)</option><option value="earliest_available">Earliest available berth</option><option value="fixed_by_class">Fixed by class</option><option value="auto">Auto (p_full/p_mid)</option></select></label>
+            <label>Segment clearance (min)<input type="number" data-bind="MODEL.segment_clearance_min" min="0" step="1"></label>
+            <label>Headway factor × LOA<input type="number" data-bind="MODEL.same_direction_safe_distance_factor" min="0" step="0.5"></label>
+            <label>UKC (m)<input type="number" data-bind="TIDE_PARAMS.ukc_m" min="0" step="0.05"></label>
+            <label>Max tide wait (h)<input type="number" data-bind="MODEL.max_tide_wait_hr" min="1" step="1"></label>
+            <label>Tide noise σ (m)<input type="number" data-bind="TIDE_PARAMS.noiseStd_m" min="0" step="0.01"></label>
+            <label>Daylight-only LOA ≥ (m, 0 = off)<input type="number" data-bind="MODEL.daylight_LOA_m" min="0" step="10"></label>
+            <label>Daylight from (h)<input type="number" data-bind="MODEL.day_start_hr" min="0" max="24" step="0.5"></label>
+            <label>Daylight to (h)<input type="number" data-bind="MODEL.day_end_hr" min="0" max="24" step="0.5"></label>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Resources, weather, anchorage</h3>
+          <div class="fields">
+            <label>Pilots (0 = unlimited)<input type="number" data-bind="RESOURCES.n_pilots" min="0" step="1"></label>
+            <label>Pilot boarding (min)<input type="number" data-bind="RESOURCES.pilot_board_min" min="0" step="5"></label>
+            <label>Tugs (0 = not modelled)<input type="number" data-bind="RESOURCES.n_tugs" min="0" step="1"></label>
+            <label>Tug LOA thresholds (m)<input type="text" data-bind="RESOURCES.tug_LOA_thresholds_m"></label>
+            <label class="check"><input type="checkbox" data-bind="WEATHER.enabled"><span>Weather closures</span></label>
+            <label>Downtime (%)<input type="number" data-bind="WEATHER.downtime_pct" min="0" max="89" step="0.5"></label>
+            <label>Mean closure (h)<input type="number" data-bind="WEATHER.mean_closure_hr" min="0.1" step="0.5"></label>
+            <label>Anchorage capacity (ships)<input type="number" data-bind="ANCHORAGE.capacity" min="0" step="1"></label>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="validationCard" hidden>
+        <h3>Validation &amp; depth feasibility</h3>
+        <div id="validationOut"></div>
+      </div>
+    </section>
+
+    <!-- ============================== RESULTS -->
+    <section id="results" class="panel">
+      <div class="page-head">
+        <div><h1>Results</h1><p class="lead" id="resultsLead">Run the simulation to see results.</p></div>
+        <div class="head-actions">
+          <button class="btn ghost" id="xlsxOutBtn" type="button">Export Excel</button>
+          <button class="btn ghost" id="csvOutBtn" type="button">Replications CSV</button>
+          <button class="btn ghost" id="jsonOutBtn" type="button">JSON</button>
+        </div>
+      </div>
+      <div class="empty" id="resultsEmpty">No results yet. Press <b>Run simulation</b>.</div>
+      <div id="resultsBody" hidden>
+        <div class="kpis" id="kpis"></div>
+        <div class="grid cols-2">
+          <div class="card"><h3>Where the time goes — mean waiting per served ship</h3><div class="chart"><canvas id="cWait"></canvas></div><p class="hint">Congestion waits (berth, traffic, turning, pilot, tug) grow with traffic; environmental waits (tide, weather, daylight) do not.</p></div>
+          <div class="card"><h3>Throughput by replication</h3><div class="chart"><canvas id="cReps"></canvas></div><p class="hint" id="repsHint"></p></div>
+          <div class="card"><h3>Segment utilisation</h3><div class="chart"><canvas id="cSeg"></canvas></div><p class="hint">Share of the observation window during which the segment is occupied (union of reservations incl. clearance).</p></div>
+          <div class="card"><h3>Berth occupancy</h3><div class="chart"><canvas id="cBerth"></canvas></div><p class="hint">Time at berth (incl. waiting at berth for outbound tide/traffic) ÷ (capacity × window).</p></div>
+          <div class="card"><h3>Distribution of total waiting time</h3><div class="chart"><canvas id="cHist"></canvas></div><p class="hint" id="histHint"></p></div>
+          <div class="card"><h3>Completed movements per day</h3><div class="chart"><canvas id="cMov"></canvas></div></div>
+        </div>
+        <div class="grid cols-2">
+          <div class="card"><h3>By ship class</h3><div class="tbl" id="tClasses"></div></div>
+          <div class="card"><h3>Berths, turning basins &amp; resources</h3><div class="tbl" id="tBerths"></div><div class="tbl" id="tBasins"></div><div id="tRes" class="hint"></div></div>
+        </div>
+        <div class="card"><h3>Run log &amp; warnings</h3><pre class="log" id="runLog"></pre></div>
+      </div>
+    </section>
+
+    <!-- ============================== CAPACITY -->
+    <section id="capacity" class="panel">
+      <div class="page-head">
+        <div><h1>Channel capacity analysis</h1><p class="lead">Sweeps the arrival rate and finds the <b>practical capacity</b>: the highest demand for which the chosen service criterion is still met. The <b>ultimate capacity</b> is the saturation throughput.</p></div>
+      </div>
+      <div class="card">
+        <div class="fields cols-6">
+          <label>λ from (ships/h)<input type="number" id="capMin" value="0.2" min="0" step="0.05"></label>
+          <label>λ to (ships/h)<input type="number" id="capMax" value="1.6" min="0" step="0.05"></label>
+          <label>Points<input type="number" id="capSteps" value="8" min="2" max="25" step="1"></label>
+          <label>Replications / point<input type="number" id="capReps" value="10" min="1" max="100" step="1"></label>
+          <label>Criterion<select id="capCrit">
+            <option value="congestion_wait_hr">Congestion wait ≤ (h)</option>
+            <option value="avg_wait_hr">Total wait ≤ (h)</option>
+            <option value="waiting_factor">Waiting factor ≤</option>
+            <option value="pending_pct">Not completed ≤ (%)</option>
+          </select></label>
+          <label>Threshold<input type="number" id="capThr" value="2" min="0" step="0.1"></label>
+        </div>
+        <div class="btn-row"><button class="btn primary" id="capBtn" type="button">Run capacity sweep</button><span class="hint" id="capEst"></span></div>
+      </div>
+      <div class="empty" id="capEmpty">No sweep yet.</div>
+      <div id="capBody" hidden>
+        <div class="kpis" id="capKpis"></div>
+        <div class="grid cols-2">
+          <div class="card"><h3>Waiting time vs demand (95 % CI band)</h3><div class="chart tall"><canvas id="cCapWait"></canvas></div></div>
+          <div class="card"><h3>Throughput vs demand</h3><div class="chart tall"><canvas id="cCapThr"></canvas></div></div>
+        </div>
+        <div class="card"><h3>Sweep points</h3><div class="tbl" id="tCap"></div></div>
+      </div>
+    </section>
+
+    <!-- ============================== CHANNEL -->
+    <section id="channel" class="panel">
+      <div class="page-head"><div><h1>Channel &amp; tide — last replication</h1><p class="lead">Occupancy heatmap, segment KPIs and the tidal windows that govern deep-draught classes.</p></div></div>
+      <div class="empty" id="channelEmpty">Run the simulation first.</div>
+      <div id="channelBody" hidden>
+        <div class="card"><h3>Ships per segment over time</h3><div class="heat-wrap"><canvas id="heatmap" height="300"></canvas></div><p class="hint">Colour = number of ships simultaneously inside the segment at each sampling instant.</p></div>
+        <div class="grid cols-2">
+          <div class="card"><h3>Tide level and class thresholds</h3><div class="chart tall"><canvas id="cTide"></canvas></div><p class="hint">Dashed lines = tide needed by each class on the shallowest segment (required depth − Depth_CD). Shaded = weather closures.</p></div>
+          <div class="card"><h3>Anchorage queue</h3><div class="chart tall"><canvas id="cQueue"></canvas></div><p class="hint" id="queueHint"></p></div>
+        </div>
+        <div class="card"><h3>Segment KPIs (mean of replications; occupancy columns from the last replication)</h3><div class="tbl" id="tSeg"></div></div>
+      </div>
+    </section>
+
+    <!-- ============================== ANIMATION -->
+    <section id="animation" class="panel">
+      <div class="page-head"><div><h1>Traffic animation — last replication</h1><p class="lead">Vessels move along the channel axis (km). Inbound above the centreline, outbound below.</p></div></div>
+      <div class="empty" id="animEmpty">Run the simulation first.</div>
+      <div id="animBody" hidden>
+        <div class="card">
+          <div class="anim-bar">
+            <button class="btn" id="playBtn" type="button">▶ Play</button>
+            <label class="inline">Speed<select id="animSpeed" class="compact"><option value="0.5">×0.1</option><option value="1">×0.2</option><option value="2.5">×0.5</option><option value="5" selected>×1</option><option value="15">×3</option><option value="40">×8</option></select></label>
+            <input type="range" id="animTime" min="0" max="14400" value="0" step="1" aria-label="Simulation time">
+            <span class="clock" id="animClock">D1 00:00</span>
+          </div>
+          <div class="anim-wrap"><canvas id="animCanvas" height="380"></canvas></div>
+          <div class="legend-row">
+            <span><i class="sw sw-bc"></i>berth_call</span><span><i class="sw sw-tr"></i>transit</span><span><i class="sw sw-to"></i>turn_only</span>
+            <span><i class="sw sw-berth"></i>Berth (fill = occupied)</span><span><i class="sw sw-tb"></i>Turning basin (solid = blocks fairway while turning, dashed = turns outside fairway)</span><span><i class="sw sw-closed"></i>Fairway closed by a turning ship</span><span><i class="sw sw-depth"></i>Segment depth (darker = deeper)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== VESSELS -->
+    <section id="vessels" class="panel">
+      <div class="page-head">
+        <div><h1>Vessel log — last replication</h1><p class="lead">Every simulated ship with its waiting decomposition. Click a column header to sort.</p></div>
+        <div class="head-actions"><button class="btn ghost" id="vesCsvBtn" type="button">Export CSV</button></div>
+      </div>
+      <div class="empty" id="vesEmpty">Run the simulation first.</div>
+      <div id="vesBody" hidden>
+        <div class="card">
+          <div class="filters">
+            <label class="inline">Movement<select id="fMov" class="compact"><option value="">All</option><option>berth_call</option><option>transit</option><option>turn_only</option></select></label>
+            <label class="inline">Status<select id="fStat" class="compact"><option value="">All</option></select></label>
+            <label class="inline">Class<select id="fCls" class="compact"><option value="">All</option></select></label>
+            <span class="hint" id="vesCount"></span>
+          </div>
+          <div class="tbl tall" id="tVes"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== INPUT DATA -->
+    <section id="input" class="panel">
+      <div class="page-head">
+        <div><h1>Input data</h1><p class="lead">Edit any INPUT sheet. Changes apply to the next run.</p></div>
+        <div class="head-actions">
+          <select id="sheetSelect" class="compact" aria-label="Sheet"></select>
+          <button class="btn ghost" id="addRowBtn" type="button">+ Row</button>
+          <button class="btn" id="applySheetBtn" type="button">Apply changes</button>
+        </div>
+      </div>
+      <div class="card"><div class="tbl tall" id="inputTable"></div><p class="hint" id="sheetHint"></p></div>
+    </section>
+
+    <!-- ============================== SCENARIOS -->
+    <section id="scenarios" class="panel">
+      <div class="page-head">
+        <div><h1>Scenario comparison</h1><p class="lead">Every simulation run is added here automatically, with the parameters that differ from the base run. Rename runs (baseline, dredging −1 m, extra berth, 2 pilots …), choose the base, remove runs you do not need. Saved in this browser.</p></div>
+        <div class="head-actions">
+          <input type="text" id="scnName" class="compact" placeholder="Name for the latest run" maxlength="40">
+          <button class="btn" id="scnSaveBtn" type="button">Rename latest run</button>
+          <button class="btn ghost" id="scnCsvBtn" type="button">Export CSV</button>
+        </div>
+      </div>
+      <div class="empty" id="scnEmpty">
+        <b>No runs yet.</b><br>
+        1. Press <b>Run simulation</b> — the result appears here as the base run.<br>
+        2. Change something in <b>Setup</b> or <b>Input data</b> (e.g. segment depth, a berth, pilots = 2, λ) and run again.<br>
+        3. Each run becomes a new column with % change against the base and a list of the parameters that changed.
+      </div>
+      <div id="scnBody" hidden>
+        <div class="card"><h3>Key indicators by scenario</h3><div class="chart"><canvas id="cScn"></canvas></div></div>
+        <div class="card"><h3>Comparison table</h3><div class="tbl" id="tScn"></div>
+          <div class="btn-row"><button class="btn ghost" id="scnClearBtn" type="button">Clear all</button><span class="hint">Green = better than base, red = worse. Click ★ to make a run the base, × to remove it.</span></div></div>
+      </div>
+    </section>
+
+    <footer class="foot">Channel Capacity Simulation V6.0 · <span id="buildTag">frontend build 6.0.3</span> · © 2026 portlogistics.vn · Planning tool — validate against site data, PIANC/national guidance and ship-handling studies before operational use.</footer>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="./js/demo-input.js?v=6.0.3"></script>
+<script src="./js/config.js?v=6.0.3"></script>
+<script src="./js/app.js?v=6.0.3"></script>
+</body>
+</html>
