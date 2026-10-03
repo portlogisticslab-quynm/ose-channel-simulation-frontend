@@ -1,7 +1,7 @@
 /* Channel Capacity Simulation V6.0 — frontend application.
    All backend calls go through apiCall() -> window.oseFetch (config.js). */
 'use strict';
-const APP_BUILD = '6.0.5';
+const APP_BUILD = '6.0.6';
 console.info('[Channel Capacity] frontend build', APP_BUILD);
 
 // ------------------------------------------------------------------ utilities
@@ -115,13 +115,7 @@ function switchTab(name) {
   document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.id === name));
   if (name === 'channel' && RESULT) requestAnimationFrame(drawHeatmap);
   if (name === 'animation' && RESULT) requestAnimationFrame(() => drawAnimation(ANIM.t));
-  // Charts created while their tab was hidden have zero size: rebuild/resize once the tab is visible.
-  requestAnimationFrame(() => {
-    if (name === 'scenarios') renderScenarios();
-    else if (name === 'results' && RESULT) renderCharts();
-    else if (name === 'channel' && RESULT) renderChannel();
-    else if (name === 'capacity' && CAP) renderCapacity();
-  });
+  flushCharts(name);   // draw charts that were prepared while this tab was hidden
   window.scrollTo({ top: 0 });
 }
 function download(name, data, type = 'text/plain') {
@@ -309,7 +303,7 @@ function chartBase() {
   Chart.defaults.color = cssVar('--muted');
   Chart.defaults.borderColor = cssVar('--line-2');
   Chart.defaults.plugins.legend.labels.boxWidth = 12;
-  Chart.defaults.animation = { duration: 250 };
+  if (Chart.defaults.animation) Chart.defaults.animation.duration = 250;   // never replace the whole object
   Chart.defaults.maintainAspectRatio = false;
   return true;
 }
@@ -338,11 +332,26 @@ const refLines = {
     ctx.restore();
   },
 };
+const PENDING_CHARTS = {};
+function panelVisible(el) { const p = el.closest('.panel'); return !p || p.classList.contains('active'); }
+// Create a chart on a FRESH canvas, and only when its tab is visible (Chart.js cannot size hidden canvases).
 function mkChart(id, cfg) {
-  if (!chartBase()) { const c = $(id); if (c) c.parentElement.innerHTML = '<div class="empty">Chart.js did not load (offline?).</div>'; return; }
-  if (CHARTS[id]) CHARTS[id].destroy();
-  cfg.plugins = [...(cfg.plugins || []), refLines];
-  CHARTS[id] = new Chart($(id), cfg);
+  const old = $(id); if (!old) return;
+  if (!chartBase()) { old.parentElement.innerHTML = '<div class="empty">Chart.js did not load (offline?).</div>'; return; }
+  if (CHARTS[id]) { try { CHARTS[id].destroy(); } catch (e) { /* ignore */ } delete CHARTS[id]; }
+  cfg.plugins = [...(cfg.plugins || []).filter((p) => p !== refLines), refLines];
+  if (!panelVisible(old)) { PENDING_CHARTS[id] = cfg; return; }
+  delete PENDING_CHARTS[id];
+  const fresh = document.createElement('canvas'); fresh.id = id; old.replaceWith(fresh);
+  fresh.parentElement.querySelectorAll('.chart-err').forEach((e) => e.remove());
+  try { CHARTS[id] = new Chart(fresh, cfg); }
+  catch (e) { console.error('[chart]', id, e); fresh.insertAdjacentHTML('afterend', `<div class="msg err chart-err">Chart error: ${esc(e.message)}</div>`); }
+}
+function flushCharts(panelId) {
+  Object.keys(PENDING_CHARTS).forEach((id) => {
+    const el = $(id); const p = el && el.closest('.panel');
+    if (p && p.id === panelId) { const cfg = PENDING_CHARTS[id]; delete PENDING_CHARTS[id]; mkChart(id, cfg); }
+  });
 }
 
 function renderCharts() {
